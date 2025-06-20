@@ -1,0 +1,168 @@
+# app.py
+import os
+import uuid
+import asyncio
+import threading
+from flask import Flask, render_template, request, session, jsonify
+
+# --- ADK Imports ---
+from agents.main_agent_pipeline import root_agent  # Your defined SequentialAgent pipeline
+from google.adk.runners import Runner
+from google.adk.sessions import InMemorySessionService
+from google.genai import types
+import vertexai
+
+# --- GCP Project Setup ---
+PROJECT_ID = "calm-suprstate-409020"
+LOCATION = "asia-south1"
+STAGING_BUCKET = "gs://your-google-cloud-storage-bucket"
+
+vertexai.init(
+    project=PROJECT_ID,
+    location=LOCATION,
+    staging_bucket=STAGING_BUCKET,
+)
+
+# --- Flask App Setup ---
+app = Flask(__name__)
+app.secret_key = os.urandom(24)
+
+# --- ADK Setup ---
+session_service = InMemorySessionService()
+runner = Runner(
+    agent=root_agent,
+    app_name="ApiIntegrationPipelineApp",
+    session_service=session_service
+)
+
+RUNNERS = {}  # Per-session agent run state
+
+async def run_agent_and_collect_events(session_id, user_id, prompt):
+    from re import findall, sub
+    global RUNNERS
+    runner_info = RUNNERS.get(session_id, {})
+    runner_info['status'] = 'running'
+    runner_info['result'] = None
+    runner_info['steps'] = [{'name': agent.name, 'status': 'pending'} for agent in root_agent.sub_agents]
+
+    current_step_index = 0
+    instruction_output = ""
+    code_output = ""
+
+    try:
+        adk_session = await session_service.create_session(app_name=runner.app_name, user_id=user_id)
+        message = types.Content(role='user', parts=[types.Part(text=prompt)])
+        events_async = runner.run_async(session_id=adk_session.id, user_id=user_id, new_message=message)
+
+        async for event in events_async:
+            event_author = getattr(event, 'author', None)
+            event_content = ''
+            if hasattr(event, 'content') and event.content and hasattr(event.content, 'parts'):
+                for part in event.content.parts:
+                    if hasattr(part, 'text') and part.text:
+                        event_content += part.text
+
+            # Update step status
+            if event_author and current_step_index < len(runner_info['steps']):
+                if runner_info['steps'][current_step_index]['name'] == event_author:
+                    runner_info['steps'][current_step_index]['status'] = 'running'
+                elif current_step_index + 1 < len(runner_info['steps']) and runner_info['steps'][current_step_index + 1]['name'] == event_author:
+                    runner_info['steps'][current_step_index]['status'] = 'completed'
+                    current_step_index += 1
+                    runner_info['steps'][current_step_index]['status'] = 'running'
+
+            # Collect relevant content
+            if event_author == "InstructionAgent":
+                instruction_output += event_content
+            elif event_author == "CodeGeneratorAgent":
+                code_output += event_content
+
+            RUNNERS[session_id] = runner_info
+
+        if current_step_index < len(runner_info['steps']):
+            runner_info['steps'][current_step_index]['status'] = 'completed'
+        runner_info['status'] = 'completed'
+
+        # Extract code blocks from code_output
+        def extract_code_blocks(output):
+            code_blocks = findall(r'```([\w+]*)\n([\s\S]*?)```', output)
+            return [{'lang': lang.strip(), 'code': code.strip()} for lang, code in code_blocks]
+
+        code_blocks = extract_code_blocks(code_output)
+
+        # Remove code from instruction_output if user pasted triple-backtick markdown in instruction
+        clean_instruction = sub(r'```[\w+]*\n[\s\S]*?```', '', instruction_output).strip()
+
+        # Format final result
+        formatted_result = ''
+        if clean_instruction:
+            formatted_result += f"<section class='review-text'>{clean_instruction}</section>"
+        if code_blocks:
+            formatted_result += "<section class='review-code'>"
+            for block in code_blocks:
+                lang = block["lang"] or "text"
+                formatted_result += f"<pre class='code-block'><code class='language-{lang}'>{block['code']}</code></pre>"
+            formatted_result += "</section>"
+
+        runner_info['result'] = formatted_result or "No output generated."
+
+        print(f"Session {session_id}: Agent run completed successfully.")
+
+    except Exception as e:
+        print(f"Error during agent execution for session {session_id}: {e}")
+        runner_info['status'] = 'error'
+        runner_info['result'] = f"An error occurred: {e}"
+
+    RUNNERS[session_id] = runner_info
+
+
+def start_async_agent_runner(session_id, user_id, prompt):
+    asyncio.run(run_agent_and_collect_events(session_id, user_id, prompt))
+
+@app.route('/')
+def index():
+    if 'session_id' not in session:
+        session['session_id'] = str(uuid.uuid4())
+        session['user_id'] = f"web-user-{uuid.uuid4()}"
+        session['history'] = []
+    return render_template('index.html', history=session['history'])
+
+@app.route('/start_agent', methods=['POST'])
+def start_agent():
+    prompt = request.json.get('prompt')
+    if not prompt:
+        return jsonify({'error': 'Prompt is required.'}), 400
+
+    session_id = session['session_id']
+    user_id = session['user_id']
+
+    if RUNNERS.get(session_id, {}).get('status') == 'running':
+        return jsonify({'error': 'An agent is already running.'}), 409
+
+    session['history'].append({'role': 'user', 'content': prompt})
+    RUNNERS[session_id] = {'status': 'starting', 'steps': []}
+
+    thread = threading.Thread(target=start_async_agent_runner, args=(session_id, user_id, prompt))
+    thread.start()
+
+    return jsonify({'status': 'started', 'session_id': session_id})
+
+@app.route('/status')
+def get_status():
+    session_id = session.get('session_id')
+    if not session_id:
+        return jsonify({'status': 'no_session'})
+
+    runner_info = RUNNERS.get(session_id)
+    if not runner_info:
+        return jsonify({'status': 'idle'})
+
+    if runner_info.get('status') in ['completed', 'error']:
+        if not session['history'] or session['history'][-1]['role'] != 'agent':
+            session['history'].append({'role': 'agent', 'content': runner_info.get('result', '')})
+        del RUNNERS[session_id]
+
+    return jsonify(runner_info)
+
+if __name__ == '__main__':
+    app.run(debug=True, host='0.0.0.0', port=5001)
