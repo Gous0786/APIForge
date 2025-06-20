@@ -12,10 +12,45 @@
     .chat-box::-webkit-scrollbar-thumb { background: #94a3b8; border-radius: 3px; }
     .spinner { animation: spin 1s linear infinite; }
     @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* Claude-style card UI */
+    .card {
+      border: 1px solid #cbd5e1; /* slate-300 */
+      background-color: #f8fafc; /* slate-50 */
+      border-radius: 12px;
+      overflow: hidden;
+      box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.02);
+      transition: all 0.2s ease-in-out;
+    }
+    .card-header {
+      background-color: #e2e8f0; /* slate-200 */
+      font-weight: 600;
+      padding: 0.75rem 1rem;
+      border-bottom: 1px solid #cbd5e1;
+      font-size: 0.95rem;
+      color: #1e293b; /* slate-800 */
+    }
+    .card-content {
+      padding: 1rem;
+      font-size: 0.875rem;
+      background-color: #f1f5f9; /* slate-100 */
+    }
+    pre {
+      background: #0f172a; /* slate-900 */
+      color: #f8fafc;
+      padding: 1rem;
+      border-radius: 8px;
+      overflow-x: auto;
+      font-size: 0.85rem;
+    }
+    code {
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
   </style>
 </head>
-<body class="bg-slate-100 h-screen flex flex-col items-center justify-center p-4">
 
+<body class="bg-slate-100 h-screen flex flex-col items-center justify-center p-4">
   <div class="bg-white rounded-2xl shadow-2xl w-full max-w-5xl h-full flex flex-col">
     <!-- Header -->
     <header class="p-4 border-b border-slate-200">
@@ -35,19 +70,19 @@
 
         {% for message in history %}
           {% if message.role == 'user' %}
-          <div class="flex items-start gap-3 self-end">
-            <div class="bg-white p-4 rounded-lg rounded-br-none max-w-xl border border-slate-200">
-              <p class="text-slate-800">{{ message.content }}</p>
+            <div class="flex items-start gap-3 self-end">
+              <div class="bg-white p-4 rounded-lg rounded-br-none max-w-xl border border-slate-200">
+                <p class="text-slate-800">{{ message.content }}</p>
+              </div>
+              <div class="bg-slate-600 text-white h-8 w-8 flex items-center justify-center font-bold rounded-full">U</div>
             </div>
-            <div class="bg-slate-600 text-white h-8 w-8 flex items-center justify-center font-bold rounded-full">U</div>
-          </div>
           {% else %}
-          <div class="flex items-start gap-3">
-            <div class="bg-blue-500 text-white h-8 w-8 flex items-center justify-center font-bold rounded-full">A</div>
-            <div class="bg-slate-200 p-4 rounded-lg rounded-tl-none max-w-xl whitespace-pre-wrap">
-              {{ message.content|safe }}
+            <div class="flex items-start gap-3">
+              <div class="bg-blue-500 text-white h-8 w-8 flex items-center justify-center font-bold rounded-full">A</div>
+              <div class="bg-slate-200 p-4 rounded-lg rounded-tl-none max-w-xl space-y-4">
+                {{ message.content|safe }}
+              </div>
             </div>
-          </div>
           {% endif %}
         {% endfor %}
       </main>
@@ -134,7 +169,7 @@
       div.className = role === 'user' ? 'flex items-start gap-3 self-end' : 'flex items-start gap-3';
       div.innerHTML = role === 'user'
         ? `<div class="bg-white p-4 rounded-lg rounded-br-none max-w-xl border border-slate-200"><p class="text-slate-800">${content}</p></div><div class="bg-slate-600 text-white h-8 w-8 flex items-center justify-center font-bold rounded-full">U</div>`
-        : `<div class="bg-blue-500 text-white h-8 w-8 flex items-center justify-center font-bold rounded-full">A</div><div class="bg-slate-200 p-4 rounded-lg rounded-tl-none max-w-xl whitespace-pre-wrap">${content}</div>`;
+        : `<div class="bg-blue-500 text-white h-8 w-8 flex items-center justify-center font-bold rounded-full">A</div><div class="bg-slate-200 p-4 rounded-lg rounded-tl-none max-w-xl space-y-4">${content}</div>`;
       chatContainer.appendChild(div);
       chatContainer.scrollTop = chatContainer.scrollHeight;
     }
