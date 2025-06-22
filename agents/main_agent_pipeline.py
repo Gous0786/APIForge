@@ -34,8 +34,6 @@ search_agent = LlmAgent(
     "Do not return links or search metadata. The output should look like an excerpt from an API doc or tutorial, not a search result."
     ),
 )
-
-
 # ---------- 3. Context Builder Agent ----------
 context_builder_agent = LlmAgent(
     name="ContextBuilderAgent",
