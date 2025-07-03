@@ -12,7 +12,6 @@ from google.adk.sessions import InMemorySessionService
 from google.genai import types
 import vertexai
 
-# --- GCP Project Setup ---
 PROJECT_ID = "calm-suprstate-409020"
 LOCATION = "asia-south1"
 STAGING_BUCKET = "gs://your-google-cloud-storage-bucket"
@@ -23,11 +22,9 @@ vertexai.init(
     staging_bucket=STAGING_BUCKET,
 )
 
-# --- Flask App Setup ---
 app = Flask(__name__)
 app.secret_key = os.urandom(24)
 
-# --- ADK Setup ---
 session_service = InMemorySessionService()
 runner = Runner(
     agent=root_agent,
@@ -92,7 +89,6 @@ async def run_agent_and_collect_events(session_id, user_id, prompt):
         clean_instruction = sub(r'```[\w+]*\n[\s\S]*?```', '', instruction_output).strip()
         escaped_instruction = html.escape(clean_instruction).replace('\n', '<br>') 
 
-        # Remove code from instruction_output if user pasted triple-backtick markdown in instruction
         
 
         # Format final result
@@ -178,7 +174,7 @@ def get_status():
             session['history'].append({
                 'role': 'agent',
                 'content': runner_info.get('result', ''),
-                'is_code': False  # ✅ This ensures HTML is rendered properly
+                'is_code': False  
             })
         del RUNNERS[session_id]
 
